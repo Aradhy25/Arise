@@ -19,6 +19,12 @@ fi
 $PIP install --upgrade pip
 $PIP install -r "$ROOT/backend/requirements.txt"
 
+WEIGHTS="$ROOT/backend/weights/efficientnet.pth"
+if [[ ! -f "$WEIGHTS" ]]; then
+  echo "==> Bootstrapping real EfficientNet weights (synthetic forgery training)"
+  "$PY" "$ROOT/scripts/bootstrap_weights.py" --epochs 3 --train-samples 400 --val-samples 80
+fi
+
 echo "==> Installing frontend dependencies"
 cd "$ROOT/frontend"
 npm install

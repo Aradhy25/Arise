@@ -87,16 +87,27 @@ docker compose up --build
 3. **M3 — Explainability + backend** — Grad-CAM, FastAPI, DB, PDF reports  
 4. **M4 — Production system** — React dashboard, JWT auth, Docker, tests  
 
-## Inference modes
+## Inference (real — no mock)
 
-- **With fine-tuned weights** (`backend/weights/<model>.pth`): PyTorch classifier + Grad-CAM  
-- **Without weights (default demo)**: forensic heuristics (ELA, frequency, noise, color correlation) so the pipeline stays honest — ImageNet backbones alone are not deepfake detectors  
+Every upload and live webcam frame runs:
 
-Train on FaceForensics++ / Celeb-DF:
+1. OpenCV decode  
+2. Face detection + crop  
+3. **PyTorch EfficientNet** forward pass  
+4. **Grad-CAM** heatmap  
+5. Optional forensic auxiliary signals  
+
+Bootstrap weights ship in `backend/weights/efficientnet.pth` (trained by `scripts/bootstrap_weights.py`).  
+For research-grade accuracy, retrain on FaceForensics++ / Celeb-DF with `scripts/train.py`.
+
+### Live webcam
+
+Open **Live camera** in the UI (`/live`) or:
 
 ```bash
-python scripts/train.py --model efficientnet --data-dir ./data --epochs 10
-python scripts/evaluate.py --model efficientnet --data-dir ./data --weights backend/weights/efficientnet.pth
+curl -X POST http://localhost:8000/api/detect/live \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@frame.jpg" -F "include_heatmap=true"
 ```
 
 ## API overview

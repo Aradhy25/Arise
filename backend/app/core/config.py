@@ -22,9 +22,9 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./deepguard.db"
 
     # Storage
-    upload_dir: Path = Path(__file__).resolve().parents[1] / "uploads"
-    weights_dir: Path = Path(__file__).resolve().parents[1] / "weights"
-    reports_dir: Path = Path(__file__).resolve().parents[1] / "reports"
+    upload_dir: Path = Path(__file__).resolve().parents[2] / "uploads"
+    weights_dir: Path = Path(__file__).resolve().parents[2] / "weights"
+    reports_dir: Path = Path(__file__).resolve().parents[2] / "reports"
     max_upload_mb: int = 100
 
     # Inference

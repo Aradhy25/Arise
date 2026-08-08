@@ -55,21 +55,27 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health", response_model=HealthOut)
     def health() -> HealthOut:
-        engine_ready = True
         try:
             eng = get_engine()
             model = eng.model_name
             device = str(eng.device)
+            weights_loaded = eng.has_finetuned_weights
+            inference_mode = "pytorch" if weights_loaded else "pytorch+forensics"
+            status = "ok"
         except Exception:
-            engine_ready = False
             model = settings.default_model
             device = settings.device
+            weights_loaded = False
+            inference_mode = "unavailable"
+            status = "degraded"
         return HealthOut(
-            status="ok" if engine_ready else "degraded",
+            status=status,
             app=settings.app_name,
             version=settings.app_version,
             model=model,
             device=device,
+            weights_loaded=weights_loaded,
+            inference_mode=inference_mode,
         )
 
     @app.get("/")

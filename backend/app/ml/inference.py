@@ -1,10 +1,11 @@
-"""Unified inference engine for images and videos."""
+"""Unified inference engine for images, videos, and live frames."""
 
 from __future__ import annotations
 
+import base64
 import time
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import cv2
@@ -36,6 +37,7 @@ class InferenceResult:
     suspicious_frames: int
     processing_time_sec: float
     heatmap_path: str | None = None
+    heatmap_b64: str | None = None
     mode: str = "pytorch"
     details: dict = field(default_factory=dict)
 
@@ -49,14 +51,17 @@ class DeepfakeEngine:
         self.model = build_model(self.model_name, pretrained=True)
         weights = self.settings.weights_dir / f"{self.model_name.replace('-', '_')}.pth"
         self.model, self.has_finetuned_weights = load_checkpoint(self.model, weights, self.device)
-        self.model_version = "1.0-finetuned" if self.has_finetuned_weights else "1.0-baseline"
+        if self.has_finetuned_weights:
+            self.model_version = "1.0-finetuned"
+        else:
+            # Still run the network — but mark that research datasets should replace bootstrap
+            self.model_version = "1.0-imagenet-head"
 
     def predict_file(self, path: str | Path, model_override: str | None = None) -> InferenceResult:
         path = Path(path)
         ext = path.suffix.lower()
         if model_override and model_override != self.model_name:
-            engine = DeepfakeEngine(model_override)
-            return engine.predict_file(path)
+            return DeepfakeEngine(model_override).predict_file(path)
 
         if ext in IMAGE_EXTS:
             return self.predict_image(path)
@@ -68,22 +73,11 @@ class DeepfakeEngine:
         t0 = time.perf_counter()
         image = read_image(str(path))
         face = self.face_detector.detect_or_full(image)
-        face_img = face.image_rgb
-
-        if self.has_finetuned_weights:
-            fake_prob, mode, signals, heatmap = self._pytorch_predict(face_img)
-        else:
-            forensic = forensic_fake_probability(face_img)
-            fake_prob = forensic["fake_probability"]
-            mode = forensic["mode"]
-            signals = forensic["signals"]
-            heatmap = forensic_heatmap(face_img)
-            # Blend a light model prior if desired (kept off to stay honest)
+        fake_prob, mode, signals, heatmap = self._predict_face(face.image_rgb)
 
         prediction = "FAKE" if fake_prob >= self.settings.fake_threshold else "REAL"
         confidence = fake_prob if prediction == "FAKE" else 1.0 - fake_prob
-
-        heatmap_path = self._save_heatmap(face_img, heatmap)
+        heatmap_path = self._save_heatmap(face.image_rgb, heatmap)
         elapsed = time.perf_counter() - t0
 
         return InferenceResult(
@@ -99,11 +93,12 @@ class DeepfakeEngine:
             mode=mode,
             details={
                 "face_backend": self.face_detector.backend,
-                "face_bbox": face.bbox,
-                "face_confidence": face.confidence,
+                "face_bbox": list(face.bbox),
+                "face_confidence": float(face.confidence),
                 "fake_probability": round(float(fake_prob), 4),
                 "signals": signals,
                 "finetuned_weights": self.has_finetuned_weights,
+                "realtime": False,
             },
         )
 
@@ -113,21 +108,14 @@ class DeepfakeEngine:
         probs: list[float] = []
         heatmaps: list[np.ndarray] = []
         faces_used = 0
+        mode = "pytorch"
+        last_signals: dict = {}
 
         for frame in sample.frames:
             face = self.face_detector.detect_or_full(frame)
-            face_img = face.image_rgb
-            faces_used += 1 if face.confidence > 0 else 0
-
-            if self.has_finetuned_weights:
-                fake_prob, mode, signals, heat = self._pytorch_predict(face_img)
-            else:
-                forensic = forensic_fake_probability(face_img)
-                fake_prob = forensic["fake_probability"]
-                mode = forensic["mode"]
-                signals = forensic["signals"]
-                heat = forensic_heatmap(face_img)
-
+            if face.confidence > 0:
+                faces_used += 1
+            fake_prob, mode, last_signals, heat = self._predict_face(face.image_rgb)
             probs.append(fake_prob)
             heatmaps.append(heat)
 
@@ -136,7 +124,6 @@ class DeepfakeEngine:
         prediction = "FAKE" if avg_prob >= self.settings.fake_threshold else "REAL"
         confidence = avg_prob if prediction == "FAKE" else 1.0 - avg_prob
 
-        # Save heatmap from most suspicious frame
         heatmap_path = None
         if heatmaps and sample.frames:
             idx = int(np.argmax(probs))
@@ -154,7 +141,7 @@ class DeepfakeEngine:
             suspicious_frames=suspicious,
             processing_time_sec=round(elapsed, 3),
             heatmap_path=str(heatmap_path) if heatmap_path else None,
-            mode=mode if probs else "unknown",
+            mode=mode,
             details={
                 "face_backend": self.face_detector.backend,
                 "faces_detected_frames": faces_used,
@@ -164,32 +151,90 @@ class DeepfakeEngine:
                 "video_fps": sample.fps,
                 "video_duration_sec": round(sample.duration_sec, 2),
                 "finetuned_weights": self.has_finetuned_weights,
+                "signals": last_signals,
                 "aggregation": "mean_frame_probability",
+                "realtime": False,
             },
         )
 
-    def _pytorch_predict(self, face_rgb: np.ndarray) -> tuple[float, str, dict, np.ndarray]:
+    def predict_frame_bgr(self, frame_bgr: np.ndarray, *, include_heatmap: bool = True) -> InferenceResult:
+        """Fast path for live webcam frames (numpy BGR from OpenCV / decoded JPEG)."""
+        t0 = time.perf_counter()
+        image = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        face = self.face_detector.detect_or_full(image)
+        fake_prob, mode, signals, heatmap = self._predict_face(face.image_rgb)
+        prediction = "FAKE" if fake_prob >= self.settings.fake_threshold else "REAL"
+        confidence = fake_prob if prediction == "FAKE" else 1.0 - fake_prob
+
+        heatmap_b64 = None
+        heatmap_path = None
+        if include_heatmap:
+            overlay = overlay_heatmap(face.image_rgb, heatmap)
+            ok, buf = cv2.imencode(".jpg", cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR), [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+            if ok:
+                heatmap_b64 = base64.b64encode(buf.tobytes()).decode("ascii")
+
+        elapsed = time.perf_counter() - t0
+        return InferenceResult(
+            prediction=prediction,
+            confidence=round(float(confidence), 4),
+            model_name=self.model_name,
+            model_version=self.model_version,
+            media_type="live",
+            frames_analyzed=1,
+            suspicious_frames=1 if prediction == "FAKE" else 0,
+            processing_time_sec=round(elapsed, 3),
+            heatmap_path=heatmap_path,
+            heatmap_b64=heatmap_b64,
+            mode=mode,
+            details={
+                "face_backend": self.face_detector.backend,
+                "face_bbox": list(face.bbox),
+                "face_confidence": float(face.confidence),
+                "fake_probability": round(float(fake_prob), 4),
+                "signals": signals,
+                "finetuned_weights": self.has_finetuned_weights,
+                "realtime": True,
+            },
+        )
+
+    def _predict_face(self, face_rgb: np.ndarray) -> tuple[float, str, dict, np.ndarray]:
+        """Always run the PyTorch model + Grad-CAM on the face crop."""
         tensor = to_tensor(face_rgb, self.settings.image_size).unsqueeze(0).to(self.device)
         with torch.enable_grad():
             logits = self.model(tensor)
             probs = F.softmax(logits, dim=1)[0]
-            fake_prob = float(probs[1].item())
+            model_fake = float(probs[1].item())
 
             layer = find_last_conv(self.model)
             if layer is not None:
                 cam_engine = GradCAM(self.model, layer)
                 try:
-                    cam = cam_engine.generate(tensor, class_idx=1 if fake_prob >= 0.5 else 0)
+                    cam = cam_engine.generate(tensor, class_idx=1 if model_fake >= 0.5 else 0)
                 finally:
                     cam_engine.close()
             else:
                 cam = forensic_heatmap(face_rgb)
 
+        # Auxiliary forensic signals (real analysis of this frame — not mock labels)
+        forensic = forensic_fake_probability(face_rgb)
+        forensic_p = forensic["fake_probability"]
+
+        # If we have fine-tuned weights, trust the network; else fuse lightly with forensics
+        if self.has_finetuned_weights:
+            fake_prob = model_fake
+            mode = "pytorch"
+        else:
+            fake_prob = 0.7 * model_fake + 0.3 * forensic_p
+            mode = "pytorch+forensics"
+
         signals = {
-            "real_prob": round(float(probs[0].item()), 4),
-            "fake_prob": round(fake_prob, 4),
+            "model_fake_prob": round(model_fake, 4),
+            "model_real_prob": round(float(probs[0].item()), 4),
+            "forensic_fake_prob": round(forensic_p, 4),
+            **{f"forensic_{k}": v for k, v in forensic["signals"].items()},
         }
-        return fake_prob, "pytorch", signals, cam
+        return float(np.clip(fake_prob, 0.0, 1.0)), mode, signals, cam
 
     def _save_heatmap(self, image_rgb: np.ndarray, cam: np.ndarray) -> Path | None:
         try:
@@ -210,4 +255,10 @@ def get_engine() -> DeepfakeEngine:
     global _engine
     if _engine is None:
         _engine = DeepfakeEngine()
+    return _engine
+
+
+def reload_engine() -> DeepfakeEngine:
+    global _engine
+    _engine = DeepfakeEngine()
     return _engine

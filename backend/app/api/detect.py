@@ -1,4 +1,4 @@
-"""Detection / upload routes."""
+"""Detection / upload / live routes."""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ import uuid
 from pathlib import Path
 
 import aiofiles
+import cv2
+import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
@@ -15,14 +17,13 @@ from app.core.config import get_settings
 from app.db.models import Detection, User
 from app.db.session import get_db
 from app.ml.inference import IMAGE_EXTS, VIDEO_EXTS, get_engine
-from app.schemas import DetectionOut
+from app.schemas import DetectionOut, LiveDetectionOut
 from app.services.report import generate_report
 
 router = APIRouter(prefix="/detect", tags=["detect"])
 
 
 def _to_out(det: Detection) -> DetectionOut:
-    settings = get_settings()
     heatmap_url = None
     report_url = None
     if det.heatmap_path:
@@ -123,21 +124,60 @@ async def detect_media(
     return _to_out(det)
 
 
+@router.post("/live", response_model=LiveDetectionOut)
+async def detect_live_frame(
+    file: UploadFile = File(...),
+    include_heatmap: bool = Form(default=True),
+    user: User = Depends(get_current_user),
+) -> LiveDetectionOut:
+    """Real-time single-frame analysis for webcam streams (live PyTorch — no mock)."""
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty frame")
+    if len(content) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Frame too large")
+
+    arr = np.frombuffer(content, dtype=np.uint8)
+    frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if frame is None:
+        raise HTTPException(status_code=400, detail="Could not decode frame")
+
+    try:
+        result = get_engine().predict_frame_bgr(frame, include_heatmap=include_heatmap)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Live inference failed: {exc}") from exc
+
+    bbox = result.details.get("face_bbox") if result.details else None
+    return LiveDetectionOut(
+        prediction=result.prediction,
+        confidence=result.confidence,
+        model_name=result.model_name,
+        model_version=result.model_version,
+        processing_time_sec=result.processing_time_sec,
+        mode=result.mode,
+        heatmap_b64=result.heatmap_b64,
+        face_bbox=bbox,
+        fake_probability=float(result.details.get("fake_probability", 0.0)),
+        details=result.details,
+    )
+
+
 @router.get("/models")
 def list_models() -> dict:
+    engine = get_engine()
     return {
         "models": [
             {
                 "id": "efficientnet",
                 "name": "EfficientNet-B0",
                 "phase": 1,
-                "description": "Baseline CNN — fast and strong for academic comparison",
+                "description": "Baseline CNN — live PyTorch inference + Grad-CAM",
             },
             {
                 "id": "xception",
                 "name": "Xception / ResNeXt-50",
                 "phase": 2,
-                "description": "Stronger CNN baseline (ResNeXt stand-in; swap for timm Xception)",
+                "description": "Stronger CNN baseline",
             },
             {
                 "id": "vit",
@@ -147,9 +187,10 @@ def list_models() -> dict:
             },
         ],
         "default": get_settings().default_model,
+        "weights_loaded": engine.has_finetuned_weights,
+        "inference_mode": "pytorch" if engine.has_finetuned_weights else "pytorch+forensics",
         "note": (
-            "Without fine-tuned deepfake weights, inference uses forensic heuristics "
-            "(ELA / frequency / noise). Place *.pth checkpoints in backend/weights/ "
-            "to enable PyTorch Grad-CAM mode."
+            "Every upload/live frame runs the real PyTorch model on the face crop. "
+            "Place research checkpoints in backend/weights/ or run scripts/bootstrap_weights.py."
         ),
     }

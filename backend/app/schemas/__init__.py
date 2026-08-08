@@ -52,6 +52,19 @@ class DetectionOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class LiveDetectionOut(BaseModel):
+    prediction: str
+    confidence: float
+    model_name: str
+    model_version: str
+    processing_time_sec: float
+    mode: str
+    heatmap_b64: str | None = None
+    face_bbox: list[int] | None = None
+    fake_probability: float
+    details: dict | None = None
+
+
 class DetectionList(BaseModel):
     items: list[DetectionOut]
     total: int
@@ -63,3 +76,5 @@ class HealthOut(BaseModel):
     version: str
     model: str
     device: str
+    weights_loaded: bool = False
+    inference_mode: str = "pytorch"

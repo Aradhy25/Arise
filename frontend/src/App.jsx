@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./lib/auth.jsx";
 import AuthPage from "./pages/AuthPage.jsx";
 import DashboardPage from "./pages/DashboardPage.jsx";
+import LivePage from "./pages/LivePage.jsx";
 
 function Protected({ children }) {
   const { isAuthenticated } = useAuth();
@@ -18,6 +19,14 @@ export default function App() {
         element={
           <Protected>
             <DashboardPage />
+          </Protected>
+        }
+      />
+      <Route
+        path="/live"
+        element={
+          <Protected>
+            <LivePage />
           </Protected>
         }
       />

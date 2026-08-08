@@ -176,7 +176,30 @@ def test_uniform_indices():
     assert _uniform_indices(1, 10) == [0]
 
 
+def test_live_detect(client):
+    login = client.post(
+        "/api/auth/login",
+        json={"email": "alice@example.com", "password": "secret12"},
+    )
+    if login.status_code != 200:
+        login = client.post(
+            "/api/auth/register",
+            json={"email": "live@example.com", "full_name": "Live", "password": "secret12"},
+        )
+    token = login.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    files = {"file": ("frame.jpg", _make_image_bytes(), "image/jpeg")}
+    r = client.post("/api/detect/live", headers=headers, files=files, data={"include_heatmap": "true"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["prediction"] in {"REAL", "FAKE"}
+    assert body["mode"] in {"pytorch", "pytorch+forensics"}
+    assert body["heatmap_b64"]
+    assert body["details"]["signals"]["model_fake_prob"] is not None
+
+
 def test_models_endpoint(client):
     r = client.get("/api/detect/models")
     assert r.status_code == 200
     assert len(r.json()["models"]) == 3
+    assert "inference_mode" in r.json()

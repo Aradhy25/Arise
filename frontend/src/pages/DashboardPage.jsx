@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, assetUrl } from "../lib/api";
 import { useAuth } from "../lib/auth.jsx";
 import DropZone from "../components/DropZone.jsx";
@@ -14,6 +15,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [preview, setPreview] = useState(null);
+  const [engineInfo, setEngineInfo] = useState(null);
 
   const refreshHistory = useCallback(async () => {
     const data = await api("/api/history?limit=12", { token });
@@ -25,6 +27,10 @@ export default function DashboardPage() {
       .then((data) => {
         setModels(data.models || []);
         if (data.default) setModelName(data.default);
+        setEngineInfo({
+          weights_loaded: data.weights_loaded,
+          inference_mode: data.inference_mode,
+        });
       })
       .catch(() => {});
     refreshHistory().catch(() => {});
@@ -67,7 +73,13 @@ export default function DashboardPage() {
               Deepfake detection system
             </p>
           </div>
-          <div className="flex items-center gap-4 text-sm">
+          <div className="flex items-center gap-3 text-sm">
+            <Link
+              to="/live"
+              className="border border-[#0b3d2e]/20 px-3 py-1.5 hover:bg-[#0b3d2e] hover:text-white transition"
+            >
+              Live camera
+            </Link>
             <div className="text-right hidden sm:block">
               <p className="font-medium text-[#0c1f17]">{user?.full_name}</p>
               <p className="text-[#3d5a4c]">{user?.role}</p>
@@ -89,9 +101,15 @@ export default function DashboardPage() {
               Analyze media
             </h1>
             <p className="mt-2 text-[#3d5a4c] max-w-xl">
-              Upload an image or video. DeepGuard extracts faces, runs the selected
-              model, and returns a confidence score with a manipulation heatmap.
+              Upload an image or video. Every file is processed live on the server —
+              face crop, PyTorch inference, Grad-CAM heatmap, and a PDF report. No mock results.
             </p>
+            {engineInfo && (
+              <p className="mt-2 text-xs text-[#1f6b4f]">
+                Engine: {engineInfo.inference_mode}
+                {engineInfo.weights_loaded ? " · fine-tuned weights loaded" : " · bootstrap / fused mode"}
+              </p>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-3">

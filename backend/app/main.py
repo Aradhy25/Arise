@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api import auth, detect, history
@@ -14,13 +15,13 @@ from app.db.models import Base
 from app.ml.inference import get_engine
 from app.schemas import HealthOut
 
+FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     get_settings()
     Base.metadata.create_all(bind=db_session.engine)
-    # Warm up engine lazily on first request; optional preload:
-    # get_engine()
     yield
 
 
@@ -33,11 +34,11 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+    # Allow Cursor port-forward / cloud preview origins
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=origins or ["*"],
-        allow_credentials=True,
+        allow_origins=["*"],
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -46,7 +47,6 @@ def create_app() -> FastAPI:
     app.include_router(detect.router, prefix="/api")
     app.include_router(history.router, prefix="/api")
 
-    # Serve heatmaps and reports
     heatmaps = settings.upload_dir / "heatmaps"
     heatmaps.mkdir(parents=True, exist_ok=True)
     settings.reports_dir.mkdir(parents=True, exist_ok=True)
@@ -78,13 +78,28 @@ def create_app() -> FastAPI:
             inference_mode=inference_mode,
         )
 
-    @app.get("/")
-    def root() -> dict:
-        return {
-            "app": settings.app_name,
-            "docs": "/docs",
-            "health": "/api/health",
-        }
+    # Serve React build from the same port (works with Cursor port forwarding)
+    if FRONTEND_DIST.exists():
+        assets = FRONTEND_DIST / "assets"
+        if assets.exists():
+            app.mount("/assets", StaticFiles(directory=str(assets)), name="frontend-assets")
+
+        @app.get("/{full_path:path}")
+        def spa_fallback(full_path: str):
+            candidate = FRONTEND_DIST / full_path
+            if full_path and candidate.is_file():
+                return FileResponse(candidate)
+            return FileResponse(FRONTEND_DIST / "index.html")
+    else:
+
+        @app.get("/")
+        def root() -> dict:
+            return {
+                "app": settings.app_name,
+                "docs": "/docs",
+                "health": "/api/health",
+                "note": "Frontend build missing. Run: cd frontend && npm run build",
+            }
 
     return app
 

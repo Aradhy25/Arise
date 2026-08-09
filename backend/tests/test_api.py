@@ -195,6 +195,22 @@ def test_public_detect(client):
     assert body["prediction"] in {"REAL", "FAKE"}
     assert body["guest"] is True
     assert body["media_type"] == "image"
+    assert body["risk_level"] in {"critical", "high", "medium", "low", "minimal"}
+    assert body["explanation"]
+    assert body["sha256"]
+    assert body["details"]["risk"]["level"] == body["risk_level"]
+
+
+def test_batch_detect(client):
+    files = [
+        ("files", ("a.jpg", _make_image_bytes(), "image/jpeg")),
+        ("files", ("b.jpg", _make_image_bytes((100, 120, 140)), "image/jpeg")),
+    ]
+    r = client.post("/api/detect/batch", files=files, data={"model_name": "efficientnet"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["total"] == 2
+    assert len(body["items"]) == 2
 
 
 def test_models_endpoint(client):

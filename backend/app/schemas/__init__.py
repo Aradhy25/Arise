@@ -81,6 +81,28 @@ class PublicDetectionOut(BaseModel):
     fake_probability: float
     details: dict | None = None
     guest: bool = True
+    risk_level: str | None = None
+    risk_label: str | None = None
+    explanation: list[str] | None = None
+    sha256: str | None = None
+
+
+class BatchDetectionOut(BaseModel):
+    items: list[PublicDetectionOut]
+    total: int
+    fake_count: int
+    real_count: int
+
+
+class AdminStatsOut(BaseModel):
+    total_detections: int
+    fake_count: int
+    real_count: int
+    image_count: int
+    video_count: int
+    audio_count: int
+    users: int
+    avg_confidence: float
 
 
 class DetectionList(BaseModel):

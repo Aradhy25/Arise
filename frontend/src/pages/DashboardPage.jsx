@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, assetUrl } from "../lib/api";
 import { useAuth } from "../lib/auth.jsx";
+import ApiStatus from "../components/ApiStatus.jsx";
 import DropZone from "../components/DropZone.jsx";
 import ResultPanel from "../components/ResultPanel.jsx";
 import HistoryList from "../components/HistoryList.jsx";
@@ -102,6 +103,7 @@ export default function DashboardPage() {
 
       <main className="mx-auto max-w-6xl px-5 py-8 grid lg:grid-cols-[1.15fr_0.85fr] gap-8">
         <section className="animate-rise space-y-6">
+          <ApiStatus />
           <div>
             <h1 className="font-[family-name:var(--font-display)] text-4xl md:text-5xl text-[#0c1f17]">
               Analyze media

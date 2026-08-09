@@ -1,25 +1,31 @@
-"""Detection / upload / live / public routes."""
+"""Detection / upload / live / public / ensemble / batch routes."""
 
 from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 import aiofiles
 import cv2
 import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_admin_user, get_current_user
 from app.core.config import get_settings
 from app.core.rate_limit import public_limiter
 from app.db.models import Detection, User
 from app.db.session import get_db
 from app.ml.inference import ALL_MEDIA_EXTS, AUDIO_EXTS, IMAGE_EXTS, VIDEO_EXTS, get_engine
-from app.schemas import DetectionOut, LiveDetectionOut, PublicDetectionOut
+from app.schemas import (
+    AdminStatsOut,
+    BatchDetectionOut,
+    DetectionOut,
+    LiveDetectionOut,
+    PublicDetectionOut,
+)
 from app.services.report import generate_report
 
 router = APIRouter(prefix="/detect", tags=["detect"])
@@ -59,6 +65,33 @@ def _media_type(ext: str) -> str:
     return "audio"
 
 
+def _public_from_result(result, *, guest: bool = True) -> PublicDetectionOut:
+    heatmap_url = None
+    if result.heatmap_path:
+        heatmap_url = f"/files/heatmaps/{Path(result.heatmap_path).name}"
+    details = result.details or {}
+    risk = details.get("risk") or {}
+    return PublicDetectionOut(
+        prediction=result.prediction,
+        confidence=result.confidence,
+        model_name=result.model_name,
+        model_version=result.model_version,
+        media_type=result.media_type,
+        frames_analyzed=result.frames_analyzed,
+        suspicious_frames=result.suspicious_frames,
+        processing_time_sec=result.processing_time_sec,
+        mode=result.mode,
+        heatmap_url=heatmap_url,
+        fake_probability=float(details.get("fake_probability", result.confidence)),
+        details=details,
+        guest=guest,
+        risk_level=risk.get("level"),
+        risk_label=risk.get("label"),
+        explanation=details.get("explanation"),
+        sha256=details.get("sha256"),
+    )
+
+
 async def _save_upload(file: UploadFile) -> tuple[Path, str, bytes]:
     settings = get_settings()
     if not file.filename:
@@ -84,6 +117,7 @@ async def detect_public(
     request: Request,
     file: UploadFile = File(...),
     model_name: str = Form(default="efficientnet"),
+    ensemble: bool = Form(default=False),
 ) -> PublicDetectionOut:
     """Worldwide guest scan — no account required (rate limited)."""
     client = request.client.host if request.client else "unknown"
@@ -91,36 +125,90 @@ async def detect_public(
 
     dest, ext, _ = await _save_upload(file)
     try:
-        result = get_engine().predict_file(dest, model_override=model_name if ext not in AUDIO_EXTS else None)
+        engine = get_engine()
+        if ensemble and ext not in AUDIO_EXTS:
+            result = engine.predict_ensemble(dest)
+        else:
+            result = engine.predict_file(dest, model_override=model_name if ext not in AUDIO_EXTS else None)
     except Exception as exc:
         dest.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=f"Inference failed: {exc}") from exc
 
-    heatmap_url = None
-    if result.heatmap_path:
-        heatmap_url = f"/files/heatmaps/{Path(result.heatmap_path).name}"
+    return _public_from_result(result, guest=True)
 
-    return PublicDetectionOut(
-        prediction=result.prediction,
-        confidence=result.confidence,
-        model_name=result.model_name,
-        model_version=result.model_version,
-        media_type=result.media_type,
-        frames_analyzed=result.frames_analyzed,
-        suspicious_frames=result.suspicious_frames,
-        processing_time_sec=result.processing_time_sec,
-        mode=result.mode,
-        heatmap_url=heatmap_url,
-        fake_probability=float(result.details.get("fake_probability", result.confidence)),
-        details=result.details,
-        guest=True,
-    )
+
+@router.post("/batch", response_model=BatchDetectionOut)
+async def detect_batch(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    model_name: str = Form(default="efficientnet"),
+) -> BatchDetectionOut:
+    """Batch scan up to 8 files in one request (guest, rate limited)."""
+    client = request.client.host if request.client else "unknown"
+    public_limiter.check(f"batch:{client}")
+
+    if not files:
+        raise HTTPException(status_code=400, detail="No files uploaded")
+    if len(files) > 8:
+        raise HTTPException(status_code=400, detail="Max 8 files per batch")
+
+    items: list[PublicDetectionOut] = []
+    for file in files:
+        dest, ext, _ = await _save_upload(file)
+        try:
+            result = get_engine().predict_file(
+                dest, model_override=model_name if ext not in AUDIO_EXTS else None
+            )
+            items.append(_public_from_result(result, guest=True))
+        except Exception as exc:
+            dest.unlink(missing_ok=True)
+            items.append(
+                PublicDetectionOut(
+                    prediction="REAL",
+                    confidence=0.0,
+                    model_name=model_name,
+                    model_version="error",
+                    media_type=_media_type(ext) if ext else "image",
+                    frames_analyzed=0,
+                    suspicious_frames=0,
+                    processing_time_sec=0.0,
+                    mode="error",
+                    fake_probability=0.0,
+                    details={"error": str(exc), "filename": file.filename},
+                    guest=True,
+                    risk_level="unknown",
+                    risk_label=f"Failed: {exc}",
+                    explanation=[str(exc)],
+                )
+            )
+
+    fake_count = sum(1 for i in items if i.prediction == "FAKE" and i.mode != "error")
+    real_count = sum(1 for i in items if i.prediction == "REAL" and i.mode != "error")
+    return BatchDetectionOut(items=items, total=len(items), fake_count=fake_count, real_count=real_count)
+
+
+@router.post("/ensemble", response_model=PublicDetectionOut)
+async def detect_ensemble(
+    request: Request,
+    file: UploadFile = File(...),
+) -> PublicDetectionOut:
+    """Advanced multi-model vote (EfficientNet + Xception + ViT)."""
+    client = request.client.host if request.client else "unknown"
+    public_limiter.check(f"ensemble:{client}")
+    dest, ext, _ = await _save_upload(file)
+    try:
+        result = get_engine().predict_ensemble(dest)
+    except Exception as exc:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"Ensemble failed: {exc}") from exc
+    return _public_from_result(result, guest=True)
 
 
 @router.post("", response_model=DetectionOut, status_code=status.HTTP_201_CREATED)
 async def detect_media(
     file: UploadFile = File(...),
     model_name: str = Form(default="efficientnet"),
+    ensemble: bool = Form(default=False),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> DetectionOut:
@@ -128,7 +216,11 @@ async def detect_media(
     media_type = _media_type(ext)
 
     try:
-        result = get_engine().predict_file(dest, model_override=model_name if ext not in AUDIO_EXTS else None)
+        engine = get_engine()
+        if ensemble and ext not in AUDIO_EXTS:
+            result = engine.predict_ensemble(dest)
+        else:
+            result = engine.predict_file(dest, model_override=model_name if ext not in AUDIO_EXTS else None)
     except Exception as exc:
         dest.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=f"Inference failed: {exc}") from exc
@@ -211,6 +303,31 @@ async def detect_live_frame(
     )
 
 
+@router.get("/stats", response_model=AdminStatsOut)
+def admin_stats(
+    _admin: User = Depends(get_admin_user),
+    db: Session = Depends(get_db),
+) -> AdminStatsOut:
+    total = db.query(Detection).count()
+    fake = db.query(Detection).filter(Detection.prediction == "FAKE").count()
+    real = db.query(Detection).filter(Detection.prediction == "REAL").count()
+    images = db.query(Detection).filter(Detection.media_type == "image").count()
+    videos = db.query(Detection).filter(Detection.media_type == "video").count()
+    audios = db.query(Detection).filter(Detection.media_type == "audio").count()
+    users = db.query(User).count()
+    avg = db.query(func.avg(Detection.confidence)).scalar() or 0.0
+    return AdminStatsOut(
+        total_detections=total,
+        fake_count=fake,
+        real_count=real,
+        image_count=images,
+        video_count=videos,
+        audio_count=audios,
+        users=users,
+        avg_confidence=round(float(avg), 4),
+    )
+
+
 @router.get("/models")
 def list_models() -> dict:
     engine = get_engine()
@@ -238,12 +355,30 @@ def list_models() -> dict:
                 "description": "Transformer visual model",
             },
             {
+                "id": "ensemble",
+                "name": "Ensemble (3-model vote)",
+                "phase": 4,
+                "modalities": ["image", "video"],
+                "description": "EfficientNet + Xception + ViT majority vote",
+            },
+            {
                 "id": "audio-forensics",
                 "name": "Audio Forensics",
                 "phase": 2,
                 "modalities": ["audio"],
                 "description": "Voice-clone / TTS spectral forensics",
             },
+        ],
+        "features": [
+            "gradcam",
+            "ensemble",
+            "batch",
+            "live",
+            "audio",
+            "risk_scoring",
+            "sha256",
+            "explanations",
+            "pdf_reports",
         ],
         "supported": {
             "image": sorted(IMAGE_EXTS),

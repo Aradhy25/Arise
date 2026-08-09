@@ -20,6 +20,7 @@ from app.ml.face_detector import FaceDetector
 from app.ml.forensics import forensic_fake_probability, forensic_heatmap
 from app.ml.gradcam import GradCAM, find_last_conv, overlay_heatmap
 from app.ml.preprocessing import read_image, to_tensor
+from app.ml.risk import explain_result, file_sha256, risk_level
 from app.ml.video import sample_video_frames
 
 
@@ -66,12 +67,70 @@ class DeepfakeEngine:
             return DeepfakeEngine(model_override).predict_file(path)
 
         if ext in IMAGE_EXTS:
-            return self.predict_image(path)
-        if ext in VIDEO_EXTS:
-            return self.predict_video(path)
+            result = self.predict_image(path)
+        elif ext in VIDEO_EXTS:
+            result = self.predict_video(path)
+        elif ext in AUDIO_EXTS:
+            result = self.predict_audio(path)
+        else:
+            raise ValueError(f"Unsupported file type: {ext}")
+        return enrich_result(result, path)
+
+    def predict_ensemble(self, path: str | Path, models: list[str] | None = None) -> InferenceResult:
+        """Run multiple visual models and vote (majority + mean probability)."""
+        path = Path(path)
+        ext = path.suffix.lower()
         if ext in AUDIO_EXTS:
-            return self.predict_audio(path)
-        raise ValueError(f"Unsupported file type: {ext}")
+            return self.predict_file(path)
+
+        models = models or ["efficientnet", "xception", "vit"]
+        t0 = time.perf_counter()
+        votes: list[InferenceResult] = []
+        for name in models:
+            try:
+                votes.append(DeepfakeEngine(name).predict_file(path))
+            except Exception:
+                continue
+        if not votes:
+            raise ValueError("Ensemble failed — no model produced a result")
+
+        probs = [float(v.details.get("fake_probability", 0.5)) for v in votes]
+        avg = float(np.mean(probs))
+        fake_votes = sum(1 for v in votes if v.prediction == "FAKE")
+        prediction = "FAKE" if fake_votes > len(votes) / 2 or avg >= self.settings.fake_threshold else "REAL"
+        confidence = avg if prediction == "FAKE" else 1.0 - avg
+        best = max(votes, key=lambda v: float(v.details.get("fake_probability", 0)))
+
+        result = InferenceResult(
+            prediction=prediction,
+            confidence=round(float(confidence), 4),
+            model_name="ensemble",
+            model_version="1.0",
+            media_type=votes[0].media_type,
+            frames_analyzed=votes[0].frames_analyzed,
+            suspicious_frames=votes[0].suspicious_frames,
+            processing_time_sec=round(time.perf_counter() - t0, 3),
+            heatmap_path=best.heatmap_path,
+            mode="ensemble",
+            details={
+                "fake_probability": round(avg, 4),
+                "ensemble": [
+                    {
+                        "model": v.model_name,
+                        "prediction": v.prediction,
+                        "confidence": v.confidence,
+                        "fake_probability": v.details.get("fake_probability"),
+                    }
+                    for v in votes
+                ],
+                "votes_fake": fake_votes,
+                "votes_total": len(votes),
+                "frame_probabilities": votes[0].details.get("frame_probabilities"),
+                "signals": votes[0].details.get("signals"),
+                "aggregation": "majority_vote+mean_probability",
+            },
+        )
+        return enrich_result(result, path)
 
     def predict_audio(self, path: Path) -> InferenceResult:
         t0 = time.perf_counter()
@@ -201,7 +260,7 @@ class DeepfakeEngine:
                 heatmap_b64 = base64.b64encode(buf.tobytes()).decode("ascii")
 
         elapsed = time.perf_counter() - t0
-        return InferenceResult(
+        result = InferenceResult(
             prediction=prediction,
             confidence=round(float(confidence), 4),
             model_name=self.model_name,
@@ -223,6 +282,7 @@ class DeepfakeEngine:
                 "realtime": True,
             },
         )
+        return enrich_result(result)
 
     def _predict_face(self, face_rgb: np.ndarray) -> tuple[float, str, dict, np.ndarray]:
         """Always run the PyTorch model + Grad-CAM on the face crop."""
@@ -275,6 +335,29 @@ class DeepfakeEngine:
 
 
 _engine: DeepfakeEngine | None = None
+
+
+def enrich_result(result: InferenceResult, path: Path | None = None) -> InferenceResult:
+    """Attach risk tier, SHA-256, and plain-language explanation."""
+    fake_p = float(result.details.get("fake_probability", result.confidence if result.prediction == "FAKE" else 1 - result.confidence))
+    ratio = result.suspicious_frames / max(result.frames_analyzed, 1)
+    risk = risk_level(fake_p, ratio)
+    explanation = explain_result(
+        prediction=result.prediction,
+        fake_probability=fake_p,
+        media_type=result.media_type,
+        mode=result.mode,
+        signals=result.details.get("signals") if isinstance(result.details.get("signals"), dict) else None,
+        frames_analyzed=result.frames_analyzed,
+        suspicious_frames=result.suspicious_frames,
+    )
+    result.details = {
+        **result.details,
+        "risk": risk,
+        "explanation": explanation,
+        "sha256": file_sha256(path) if path and Path(path).exists() else None,
+    }
+    return result
 
 
 def get_engine() -> DeepfakeEngine:

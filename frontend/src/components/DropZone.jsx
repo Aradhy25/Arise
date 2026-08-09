@@ -1,12 +1,14 @@
 import { useRef, useState } from "react";
 
-export default function DropZone({ onFile, disabled }) {
+export default function DropZone({ onFile, onFiles, disabled, multiple = false }) {
   const inputRef = useRef(null);
   const [dragging, setDragging] = useState(false);
 
-  function handleFiles(files) {
-    const file = files?.[0];
-    if (file) onFile(file);
+  function handleFiles(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    if (multiple && onFiles) onFiles(files);
+    else if (onFile) onFile(files[0]);
   }
 
   return (
@@ -35,6 +37,7 @@ export default function DropZone({ onFile, disabled }) {
       </p>
       <p className="mt-2 text-sm text-[#3d5a4c]">
         Images (JPG, PNG, WEBP) · Videos (MP4, MOV, AVI, MKV) · Audio (WAV, MP3, M4A, FLAC)
+        {multiple ? " · up to 8 files" : ""}
       </p>
       <button
         type="button"
@@ -48,6 +51,7 @@ export default function DropZone({ onFile, disabled }) {
         type="file"
         className="hidden"
         accept="image/*,video/*,audio/*"
+        multiple={multiple}
         onChange={(e) => handleFiles(e.target.files)}
       />
     </div>

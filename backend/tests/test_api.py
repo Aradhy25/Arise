@@ -177,19 +177,8 @@ def test_uniform_indices():
 
 
 def test_live_detect(client):
-    login = client.post(
-        "/api/auth/login",
-        json={"email": "alice@example.com", "password": "secret12"},
-    )
-    if login.status_code != 200:
-        login = client.post(
-            "/api/auth/register",
-            json={"email": "live@example.com", "full_name": "Live", "password": "secret12"},
-        )
-    token = login.json()["access_token"]
-    headers = {"Authorization": f"Bearer {token}"}
     files = {"file": ("frame.jpg", _make_image_bytes(), "image/jpeg")}
-    r = client.post("/api/detect/live", headers=headers, files=files, data={"include_heatmap": "true"})
+    r = client.post("/api/detect/live", files=files, data={"include_heatmap": "true"})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["prediction"] in {"REAL", "FAKE"}
@@ -198,8 +187,19 @@ def test_live_detect(client):
     assert body["details"]["signals"]["model_fake_prob"] is not None
 
 
+def test_public_detect(client):
+    files = {"file": ("sample.jpg", _make_image_bytes(), "image/jpeg")}
+    r = client.post("/api/detect/public", files=files, data={"model_name": "efficientnet"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["prediction"] in {"REAL", "FAKE"}
+    assert body["guest"] is True
+    assert body["media_type"] == "image"
+
+
 def test_models_endpoint(client):
     r = client.get("/api/detect/models")
     assert r.status_code == 200
-    assert len(r.json()["models"]) == 3
+    assert len(r.json()["models"]) >= 3
     assert "inference_mode" in r.json()
+    assert "public_endpoint" in r.json()

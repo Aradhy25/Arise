@@ -9,7 +9,7 @@ export default function ResultPanel({ loading, result, preview }) {
           Analyzing…
         </p>
         <p className="text-sm text-[#3d5a4c] mt-1">
-          Extracting faces, running inference, building heatmap.
+          Running multi-modal deepfake forensics on your media.
         </p>
       </div>
     );
@@ -20,6 +20,7 @@ export default function ResultPanel({ loading, result, preview }) {
   const isFake = result.prediction === "FAKE";
   const heatmap = assetUrl(result.heatmap_url);
   const report = assetUrl(result.report_url);
+  const isAudio = result.media_type === "audio";
 
   return (
     <div className="border border-[#0b3d2e]/10 bg-white/75 p-6 space-y-5 animate-rise">
@@ -33,6 +34,9 @@ export default function ResultPanel({ loading, result, preview }) {
           >
             {result.prediction}
           </p>
+          {result.guest && (
+            <p className="text-xs text-[#3d5a4c] mt-2">Guest scan · Sign in to save history & PDF</p>
+          )}
         </div>
         <div className="text-right">
           <p className="text-xs tracking-[0.2em] uppercase text-[#3d5a4c]">Confidence</p>
@@ -43,12 +47,20 @@ export default function ResultPanel({ loading, result, preview }) {
       </div>
 
       <div className="grid sm:grid-cols-2 gap-4">
-        {preview && (
+        {preview && !isAudio && (
           <figure>
             <figcaption className="text-xs uppercase tracking-wider text-[#3d5a4c] mb-2">
               Input / preview
             </figcaption>
             <img src={preview} alt="Uploaded media preview" className="w-full object-cover max-h-64" />
+          </figure>
+        )}
+        {preview && isAudio && (
+          <figure>
+            <figcaption className="text-xs uppercase tracking-wider text-[#3d5a4c] mb-2">
+              Audio input
+            </figcaption>
+            <audio controls src={preview} className="w-full" />
           </figure>
         )}
         {heatmap && (
@@ -63,8 +75,8 @@ export default function ResultPanel({ loading, result, preview }) {
 
       <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
         <Meta label="Model" value={result.model_name} />
-        <Meta label="Frames analyzed" value={result.frames_analyzed} />
-        <Meta label="Suspicious frames" value={result.suspicious_frames} />
+        <Meta label="Type" value={result.media_type || "—"} />
+        <Meta label="Frames / clips" value={result.frames_analyzed ?? "—"} />
         <Meta label="Processing" value={`${result.processing_time_sec}s`} />
       </dl>
 

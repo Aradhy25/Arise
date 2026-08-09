@@ -65,6 +65,24 @@ class LiveDetectionOut(BaseModel):
     details: dict | None = None
 
 
+class PublicDetectionOut(BaseModel):
+    """Guest / public scan result (no account required)."""
+
+    prediction: str
+    confidence: float
+    model_name: str
+    model_version: str
+    media_type: str
+    frames_analyzed: int
+    suspicious_frames: int
+    processing_time_sec: float
+    mode: str
+    heatmap_url: str | None = None
+    fake_probability: float
+    details: dict | None = None
+    guest: bool = True
+
+
 class DetectionList(BaseModel):
     items: list[DetectionOut]
     total: int

@@ -4,7 +4,7 @@ import { api } from "../lib/api";
 import { useAuth } from "../lib/auth.jsx";
 
 export default function LivePage() {
-  const { token, logout, user } = useAuth();
+  const { token, logout, user, isAuthenticated } = useAuth();
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const [active, setActive] = useState(false);
@@ -69,7 +69,11 @@ export default function LivePage() {
       const form = new FormData();
       form.append("file", blob, "frame.jpg");
       form.append("include_heatmap", "true");
-      const data = await api("/api/detect/live", { method: "POST", token, body: form });
+      const data = await api("/api/detect/live", {
+        method: "POST",
+        token: isAuthenticated ? token : undefined,
+        body: form,
+      });
       setResult(data);
     } catch (err) {
       setError(err.message || "Live detection failed");
@@ -92,12 +96,23 @@ export default function LivePage() {
           </div>
           <div className="flex items-center gap-3 text-sm">
             <Link to="/" className="border border-[#0b3d2e]/20 px-3 py-1.5 hover:bg-[#0b3d2e] hover:text-white transition">
-              Upload
+              Home
             </Link>
-            <span className="hidden sm:inline text-[#3d5a4c]">{user?.full_name}</span>
-            <button onClick={logout} className="border border-[#0b3d2e]/20 px-3 py-1.5 hover:bg-[#0b3d2e] hover:text-white transition">
-              Sign out
-            </button>
+            <Link to="/scan" className="border border-[#0b3d2e]/20 px-3 py-1.5 hover:bg-[#0b3d2e] hover:text-white transition">
+              Scan
+            </Link>
+            {isAuthenticated ? (
+              <>
+                <span className="hidden sm:inline text-[#3d5a4c]">{user?.full_name}</span>
+                <button onClick={logout} className="border border-[#0b3d2e]/20 px-3 py-1.5 hover:bg-[#0b3d2e] hover:text-white transition">
+                  Sign out
+                </button>
+              </>
+            ) : (
+              <Link to="/auth" className="bg-[#0b3d2e] text-white px-3 py-1.5 font-semibold">
+                Sign in
+              </Link>
+            )}
           </div>
         </div>
       </header>

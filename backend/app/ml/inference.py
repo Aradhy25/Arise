@@ -14,6 +14,7 @@ import torch
 import torch.nn.functional as F
 
 from app.core.config import get_settings
+from app.ml.audio import AUDIO_EXTS, analyze_audio
 from app.ml.architectures.factory import build_model, load_checkpoint
 from app.ml.face_detector import FaceDetector
 from app.ml.forensics import forensic_fake_probability, forensic_heatmap
@@ -24,6 +25,7 @@ from app.ml.video import sample_video_frames
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 VIDEO_EXTS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
+ALL_MEDIA_EXTS = IMAGE_EXTS | VIDEO_EXTS | AUDIO_EXTS
 
 
 @dataclass
@@ -67,7 +69,31 @@ class DeepfakeEngine:
             return self.predict_image(path)
         if ext in VIDEO_EXTS:
             return self.predict_video(path)
+        if ext in AUDIO_EXTS:
+            return self.predict_audio(path)
         raise ValueError(f"Unsupported file type: {ext}")
+
+    def predict_audio(self, path: Path) -> InferenceResult:
+        t0 = time.perf_counter()
+        result = analyze_audio(path)
+        elapsed = time.perf_counter() - t0
+        return InferenceResult(
+            prediction=result["prediction"],
+            confidence=result["confidence"],
+            model_name="audio-forensics",
+            model_version="1.0",
+            media_type="audio",
+            frames_analyzed=1,
+            suspicious_frames=1 if result["prediction"] == "FAKE" else 0,
+            processing_time_sec=round(elapsed, 3),
+            mode=result["mode"],
+            details={
+                "fake_probability": result["fake_probability"],
+                "signals": result["signals"],
+                "finetuned_weights": False,
+                "modality": "audio",
+            },
+        )
 
     def predict_image(self, path: Path) -> InferenceResult:
         t0 = time.perf_counter()

@@ -34,7 +34,7 @@ export default function DropZone({ onFile, disabled }) {
         Drag & drop media
       </p>
       <p className="mt-2 text-sm text-[#3d5a4c]">
-        Images (JPG, PNG, WEBP) or videos (MP4, MOV, AVI, MKV)
+        Images (JPG, PNG, WEBP) · Videos (MP4, MOV, AVI, MKV) · Audio (WAV, MP3, M4A, FLAC)
       </p>
       <button
         type="button"
@@ -47,7 +47,7 @@ export default function DropZone({ onFile, disabled }) {
         ref={inputRef}
         type="file"
         className="hidden"
-        accept="image/*,video/*"
+        accept="image/*,video/*,audio/*"
         onChange={(e) => handleFiles(e.target.files)}
       />
     </div>

@@ -75,6 +75,12 @@ export default function DashboardPage() {
           </div>
           <div className="flex items-center gap-3 text-sm">
             <Link
+              to="/"
+              className="border border-[#0b3d2e]/20 px-3 py-1.5 hover:bg-[#0b3d2e] hover:text-white transition"
+            >
+              Home
+            </Link>
+            <Link
               to="/live"
               className="border border-[#0b3d2e]/20 px-3 py-1.5 hover:bg-[#0b3d2e] hover:text-white transition"
             >

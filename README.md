@@ -46,7 +46,47 @@ OpenCV Face  Files
 | Deploy | Docker Compose |
 | Tests | PyTest |
 
-## Run on your computer
+## Publish worldwide (make it a public website)
+
+DeepGuard is a **Progressive Web App** — anyone on Windows, macOS, Linux, iOS, or Android can open it in a browser and optionally “Add to Home Screen”.
+
+### Fastest: deploy on Render
+
+1. Push this branch to GitHub  
+2. Go to [render.com](https://render.com) → **New** → **Blueprint**  
+3. Select this repo (uses `render.yaml`)  
+4. Deploy  
+
+You get a public HTTPS URL like `https://deepguard-ai.onrender.com`.
+
+### Or Fly.io
+
+```bash
+fly launch --config fly.toml
+fly deploy
+```
+
+### Or any Docker host
+
+```bash
+docker build -t deepguard .
+docker run -p 8000:8000 -e SECRET_KEY=your-secret deepguard
+```
+
+### Product surfaces
+
+| URL | Who | What |
+|-----|-----|------|
+| `/` | Everyone | Marketing landing |
+| `/scan` | Everyone | Free guest deepfake scan (image/video/audio) |
+| `/live` | Everyone | Live webcam detection |
+| `/auth` | Users | Sign up / sign in |
+| `/app` | Signed-in | History + PDF forensic reports |
+
+### Honest capability note
+
+DeepGuard is an **advanced multi-modal forensic system** (visual CNN + Grad-CAM + audio spectral analysis).  
+No tool on earth detects *every* future deepfake with 100% certainty. Treat outputs as decision-support, and retrain on FaceForensics++ / Celeb-DF / ASVspoof for research-grade accuracy.
 
 ### 1. Clone this branch
 

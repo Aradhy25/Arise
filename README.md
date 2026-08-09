@@ -46,37 +46,86 @@ OpenCV Face  Files
 | Deploy | Docker Compose |
 | Tests | PyTest |
 
-## Quick start (local)
+## Run on your computer
 
-### Backend
+### 1. Clone this branch
 
+```bash
+git clone https://github.com/Aradhy25/Arise.git
+cd Arise
+git checkout cursor/deepguard-ai-c30f
+```
+
+### 2. One-port setup (easiest)
+
+**Needs:** Python 3.11+, Node.js 20+, ~5 GB free (PyTorch)
+
+**macOS / Linux**
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r backend/requirements.txt
+
+cd frontend
+npm install
+npm run build
+cd ..
+
+cd backend
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+**Windows (PowerShell)**
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r backend\requirements.txt
+
+cd frontend
+npm install
+npm run build
+cd ..
+
+cd backend
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+Then open **http://localhost:8000** in your browser.
+
+- Register an account (first user becomes admin)
+- Upload an image/video, or use **Live camera**
+- API docs: http://localhost:8000/docs
+
+If `backend/weights/efficientnet.pth` is missing:
+```bash
+python scripts/bootstrap_weights.py
+```
+
+### 3. Dev mode (two terminals)
+
+Terminal 1 — API:
+```bash
+source .venv/bin/activate   # Windows: .\.venv\Scripts\Activate.ps1
 cd backend
 uvicorn app.main:app --reload --port 8000
 ```
 
-API docs: http://localhost:8000/docs
-
-### Frontend
-
+Terminal 2 — UI with hot reload:
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-UI: http://localhost:5173
+Open **http://localhost:5173** (Vite proxies `/api` to the backend).
 
-### Docker
+### 4. Docker (optional)
 
 ```bash
 docker compose up --build
 ```
 
-- Frontend: http://localhost:3000  
+- App UI (nginx): http://localhost:3000  
 - API: http://localhost:8000  
 - Postgres: localhost:5432
 

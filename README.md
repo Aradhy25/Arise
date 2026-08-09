@@ -107,6 +107,19 @@ Then open **http://localhost:8000** in your browser.
 - Upload an image/video, or use **Live camera**
 - API docs: http://localhost:8000/docs
 
+**macOS pyenv `No module named '_lzma'`:** the app includes a compatibility shim, but the lasting fix is:
+```bash
+brew install xz
+pyenv install --force 3.11.9
+cd ~/Arise
+rm -rf .venv
+python -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install --default-timeout=1000 torch==2.5.1 torchvision==0.20.1
+pip install --default-timeout=1000 -r backend/requirements.txt
+```
+
 If `backend/weights/efficientnet.pth` is missing:
 ```bash
 python scripts/bootstrap_weights.py

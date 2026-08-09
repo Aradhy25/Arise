@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import app.ml.compat  # noqa: F401  — lzma shim for pyenv Mac builds
 import cv2
 import numpy as np
 import torch

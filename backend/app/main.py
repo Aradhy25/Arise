@@ -3,6 +3,8 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import app.ml.compat  # noqa: F401  — must run before torchvision imports
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse

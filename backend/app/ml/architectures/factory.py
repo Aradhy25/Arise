@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import app.ml.compat  # noqa: F401  — lzma shim for pyenv Mac builds
 import torch
 import torch.nn as nn
 from torchvision import models

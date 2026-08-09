@@ -50,27 +50,53 @@ OpenCV Face  Files
 
 DeepGuard is a **Progressive Web App** — anyone on Windows, macOS, Linux, iOS, or Android can open it in a browser and optionally “Add to Home Screen”.
 
-### Fastest: deploy on Render
+### Recommended: Netlify (website) + Render (AI API)
 
-1. Push this branch to GitHub  
-2. Go to [render.com](https://render.com) → **New** → **Blueprint**  
-3. Select this repo (uses `render.yaml`)  
-4. Deploy  
+Netlify hosts the **website**. The PyTorch detector needs a Python server, so the API goes on Render (or Fly/Railway).
 
-You get a public HTTPS URL like `https://deepguard-ai.onrender.com`.
+#### 1) Deploy the API (Render)
 
-### Or Fly.io
+1. Open [render.com](https://render.com) → **New** → **Web Service**
+2. Connect `Aradhy25/Arise`, branch `cursor/deepguard-ai-c30f`
+3. Settings:
+   - **Runtime:** Docker  
+   - **Dockerfile path:** `./Dockerfile`  
+   - **Health check:** `/api/health`
+4. Env vars: `SECRET_KEY` (random), `DEVICE=cpu`, `CORS_ORIGINS=*`
+5. Deploy → copy your API URL, e.g. `https://deepguard-api.onrender.com`
+
+#### 2) Deploy the website (Netlify)
+
+1. Open [app.netlify.com](https://app.netlify.com) → **Add new site** → **Import an existing project**
+2. Choose GitHub → `Aradhy25/Arise` → branch `cursor/deepguard-ai-c30f`
+3. Netlify reads `netlify.toml` automatically (`frontend` base, `npm run build`)
+4. **Site settings → Environment variables** add:
+   - Key: `VITE_API_URL`  
+   - Value: `https://YOUR-API.onrender.com`  *(no trailing slash)*
+5. Trigger a deploy
+
+Your worldwide site will be like `https://something.netlify.app`.
+
+#### Optional: custom domain
+
+In Netlify → Domain management → Add custom domain (e.g. `deepguard.ai`).
+
+#### Optional: proxy API through Netlify
+
+Edit `netlify.toml`, uncomment the `/api/*` and `/files/*` redirect blocks, put your Render URL there, remove `VITE_API_URL`, and redeploy. Then the browser only talks to Netlify.
+
+### Or Fly.io (API)
 
 ```bash
 fly launch --config fly.toml
 fly deploy
 ```
 
-### Or any Docker host
+### Or any Docker host (API)
 
 ```bash
 docker build -t deepguard .
-docker run -p 8000:8000 -e SECRET_KEY=your-secret deepguard
+docker run -p 8000:8000 -e SECRET_KEY=your-secret -e CORS_ORIGINS=* deepguard
 ```
 
 ### Product surfaces

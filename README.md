@@ -64,7 +64,11 @@ git checkout cursor/deepguard-ai-c30f
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r backend/requirements.txt
+pip install --upgrade pip
+
+# PyTorch is large — install it first with a long timeout (fixes Mac timeout errors)
+pip install --default-timeout=1000 torch==2.5.1 torchvision==0.20.1
+pip install --default-timeout=1000 -r backend/requirements.txt
 
 cd frontend
 npm install
@@ -73,6 +77,13 @@ cd ..
 
 cd backend
 uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+**If `pip install` times out on torch (common on Mac Wi‑Fi):**
+```bash
+pip install --upgrade pip
+pip install --default-timeout=1000 --retries 10 torch==2.5.1 torchvision==0.20.1
+pip install --default-timeout=1000 -r backend/requirements.txt
 ```
 
 **Windows (PowerShell)**

@@ -1,1 +1,284 @@
-# Arise
+# DeepGuard AI
+
+Forensic deepfake detection system — React + FastAPI + PyTorch + Grad-CAM + PostgreSQL.
+
+## Architecture
+
+```
+User (image/video)
+        │
+        ▼
+ React + Vite + Tailwind
+        │  REST
+        ▼
+     FastAPI
+   ┌────┼────┐
+OpenCV Face  Files
+   │    │
+   └──┬─┘
+      ▼
+ PyTorch models
+ EfficientNet / Xception / ViT
+      │
+ Real/Fake + confidence
+      │
+   Grad-CAM heatmap
+      │
+ Forensic PDF report
+      │
+  PostgreSQL / SQLite
+```
+
+## Tech stack
+
+| Layer | Choice |
+|-------|--------|
+| Language | Python 3.12 |
+| DL | PyTorch + TorchVision |
+| Models | EfficientNet-B0 → Xception/ResNeXt → ViT-B/16 |
+| CV | OpenCV |
+| Face detection | OpenCV Haar / YuNet / MediaPipe (RetinaFace-ready) |
+| XAI | Grad-CAM (+ forensic ELA heatmap fallback) |
+| Backend | FastAPI + JWT |
+| Frontend | React + Vite + Tailwind CSS |
+| DB | PostgreSQL (SQLite for local demo) |
+| Reports | ReportLab |
+| Deploy | Docker Compose |
+| Tests | PyTest |
+
+## Publish worldwide (make it a public website)
+
+DeepGuard is a **Progressive Web App** — anyone on Windows, macOS, Linux, iOS, or Android can open it in a browser and optionally “Add to Home Screen”.
+
+### Recommended: Netlify (website) + Render (AI API)
+
+Netlify hosts the **website**. The PyTorch detector needs a Python server, so the API goes on Render (or Fly/Railway).
+
+#### 1) Deploy the API (Render)
+
+1. Open [render.com](https://render.com) → **New** → **Web Service**
+2. Connect `Aradhy25/Arise`, branch `cursor/deepguard-ai-c30f`
+3. Settings:
+   - **Runtime:** Docker  
+   - **Dockerfile path:** `./Dockerfile`  
+   - **Health check:** `/api/health`
+4. Env vars: `SECRET_KEY` (random), `DEVICE=cpu`, `CORS_ORIGINS=*`
+5. Deploy → copy your API URL, e.g. `https://deepguard-api.onrender.com`
+
+#### 2) Deploy the website (Netlify)
+
+1. Open [app.netlify.com](https://app.netlify.com) → **Add new site** → **Import an existing project**
+2. Choose GitHub → `Aradhy25/Arise` → branch `cursor/deepguard-ai-c30f`
+3. Netlify reads `netlify.toml` automatically (`frontend` base, `npm run build`)
+4. **Site settings → Environment variables** add:
+   - Key: `VITE_API_URL`  
+   - Value: `https://YOUR-API.onrender.com`  *(no trailing slash)*
+5. Trigger a deploy
+
+Your worldwide site will be like `https://something.netlify.app`.
+
+#### Optional: custom domain
+
+In Netlify → Domain management → Add custom domain (e.g. `deepguard.ai`).
+
+#### Optional: proxy API through Netlify
+
+Edit `netlify.toml`, uncomment the `/api/*` and `/files/*` redirect blocks, put your Render URL there, remove `VITE_API_URL`, and redeploy. Then the browser only talks to Netlify.
+
+### Or Fly.io (API)
+
+```bash
+fly launch --config fly.toml
+fly deploy
+```
+
+### Or any Docker host (API)
+
+```bash
+docker build -t deepguard .
+docker run -p 8000:8000 -e SECRET_KEY=your-secret -e CORS_ORIGINS=* deepguard
+```
+
+### Product surfaces
+
+| URL | Who | What |
+|-----|-----|------|
+| `/` | Everyone | Marketing landing |
+| `/scan` | Everyone | Free guest deepfake scan (image/video/audio) |
+| `/live` | Everyone | Live webcam detection |
+| `/auth` | Users | Sign up / sign in |
+| `/app` | Signed-in | History + PDF forensic reports |
+
+### Honest capability note
+
+DeepGuard is an **advanced multi-modal forensic system** (visual CNN + Grad-CAM + audio spectral analysis).  
+No tool on earth detects *every* future deepfake with 100% certainty. Treat outputs as decision-support, and retrain on FaceForensics++ / Celeb-DF / ASVspoof for research-grade accuracy.
+
+### 1. Clone this branch
+
+```bash
+git clone https://github.com/Aradhy25/Arise.git
+cd Arise
+git checkout cursor/deepguard-ai-c30f
+```
+
+### 2. One-port setup (easiest)
+
+**Needs:** Python 3.11+, Node.js 20+, ~5 GB free (PyTorch)
+
+**macOS / Linux**
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+
+# PyTorch is large — install it first with a long timeout (fixes Mac timeout errors)
+pip install --default-timeout=1000 torch==2.5.1 torchvision==0.20.1
+pip install --default-timeout=1000 -r backend/requirements.txt
+
+cd frontend
+npm install
+npm run build
+cd ..
+
+cd backend
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+**If `pip install` times out on torch (common on Mac Wi‑Fi):**
+```bash
+pip install --upgrade pip
+pip install --default-timeout=1000 --retries 10 torch==2.5.1 torchvision==0.20.1
+pip install --default-timeout=1000 -r backend/requirements.txt
+```
+
+**Windows (PowerShell)**
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r backend\requirements.txt
+
+cd frontend
+npm install
+npm run build
+cd ..
+
+cd backend
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+Then open **http://localhost:8000** in your browser.
+
+- Register an account (first user becomes admin)
+- Upload an image/video, or use **Live camera**
+- API docs: http://localhost:8000/docs
+
+**macOS pyenv `No module named '_lzma'`:** the app includes a compatibility shim, but the lasting fix is:
+```bash
+brew install xz
+pyenv install --force 3.11.9
+cd ~/Arise
+rm -rf .venv
+python -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install --default-timeout=1000 torch==2.5.1 torchvision==0.20.1
+pip install --default-timeout=1000 -r backend/requirements.txt
+```
+
+If `backend/weights/efficientnet.pth` is missing:
+```bash
+python scripts/bootstrap_weights.py
+```
+
+### 3. Dev mode (two terminals)
+
+Terminal 1 — API:
+```bash
+source .venv/bin/activate   # Windows: .\.venv\Scripts\Activate.ps1
+cd backend
+uvicorn app.main:app --reload --port 8000
+```
+
+Terminal 2 — UI with hot reload:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open **http://localhost:5173** (Vite proxies `/api` to the backend).
+
+### 4. Docker (optional)
+
+```bash
+docker compose up --build
+```
+
+- App UI (nginx): http://localhost:3000  
+- API: http://localhost:8000  
+- Postgres: localhost:5432
+
+## Milestones
+
+1. **M1 — AI prototype** — model architectures, preprocessing, real/fake prediction  
+2. **M2 — Video forensics** — frame sampling, face crop, aggregation  
+3. **M3 — Explainability + backend** — Grad-CAM, FastAPI, DB, PDF reports  
+4. **M4 — Production system** — React dashboard, JWT auth, Docker, tests  
+
+## Inference (real — no mock)
+
+Every upload and live webcam frame runs:
+
+1. OpenCV decode  
+2. Face detection + crop  
+3. **PyTorch EfficientNet** forward pass  
+4. **Grad-CAM** heatmap  
+5. Optional forensic auxiliary signals  
+
+Bootstrap weights ship in `backend/weights/efficientnet.pth` (trained by `scripts/bootstrap_weights.py`).  
+For research-grade accuracy, retrain on FaceForensics++ / Celeb-DF with `scripts/train.py`.
+
+### Live webcam
+
+Open **Live camera** in the UI (`/live`) or:
+
+```bash
+curl -X POST http://localhost:8000/api/detect/live \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@frame.jpg" -F "include_heatmap=true"
+```
+
+## API overview
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/auth/register` | Create account (first user = admin) |
+| POST | `/api/auth/login` | JWT login |
+| GET | `/api/auth/me` | Current user |
+| POST | `/api/detect` | Upload image/video + model |
+| GET | `/api/detect/models` | Available models |
+| GET | `/api/history` | Detection history |
+| GET | `/api/health` | Health check |
+
+## Datasets (research)
+
+Start with **FaceForensics++** and **Celeb-DF**. Optionally add DFDC / ForgeryNet if storage allows.
+
+## Project layout
+
+```
+backend/app/          FastAPI + ML pipeline
+frontend/src/         React dashboard
+scripts/train.py      Training scaffold
+scripts/evaluate.py   Metrics (accuracy, F1, ROC-AUC) — no invented numbers
+docker-compose.yml    Full stack
+docs/                 Extra notes
+```
+
+## Testing
+
+```bash
+cd backend
+pytest -q
+```

@@ -1,3 +1,60 @@
+# Dependencies
+.venv/
 node_modules/
-.DS_Store
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+env/
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Environment
+.env
+.env.local
+.env.*.local
 *.log
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Uploads & artifacts
+backend/uploads/*
+!backend/uploads/.gitkeep
+backend/*.db
+*.sqlite3
+artifacts/
+backend/reports/*
+!backend/reports/.gitkeep
+*.pdf
+
+# ML / data
+data/
+datasets/
+backend/weights/*
+!backend/weights/.gitkeep
+!backend/weights/efficientnet.pth
+*.ckpt
+*.onnx
+.ipynb_checkpoints/
+
+# Frontend build
+frontend/dist/
+frontend/.vite/
+
+# Coverage / test
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Docker
+docker-data/

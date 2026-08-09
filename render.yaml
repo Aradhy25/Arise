@@ -1,0 +1,17 @@
+# Render.com one-click / blueprint deploy for DeepGuard AI
+services:
+  - type: web
+    name: deepguard-ai
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEVICE
+        value: cpu
+      - key: DATABASE_URL
+        value: sqlite:///./deepguard.db
+      - key: CORS_ORIGINS
+        value: "*"

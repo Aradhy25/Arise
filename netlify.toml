@@ -1,0 +1,44 @@
+# Netlify — frontend (React) hosting
+# The PyTorch API cannot run on Netlify; point VITE_API_URL at your backend
+# (Render / Fly / Railway / any Docker host).
+
+[build]
+  base = "frontend"
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# SPA routing
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Optional: after you deploy the API, uncomment and set your backend URL
+# so /api and /files are proxied (then you can leave VITE_API_URL empty).
+#
+# [[redirects]]
+#   from = "/api/*"
+#   to = "https://YOUR-BACKEND.onrender.com/api/:splat"
+#   status = 200
+#   force = true
+#
+# [[redirects]]
+#   from = "/files/*"
+#   to = "https://YOUR-BACKEND.onrender.com/files/:splat"
+#   status = 200
+#   force = true
+#
+# [[redirects]]
+#   from = "/*"
+#   to = "/index.html"
+#   status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"

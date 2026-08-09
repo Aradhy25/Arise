@@ -1,17 +1,17 @@
 {
-  "name": "Arise",
+  "name": "DeepGuard AI",
   "install": "./scripts/cloud-agent-install.sh",
   "terminals": [
     {
-      "name": "dev-server",
-      "command": "npm run dev",
-      "description": "Arise development server on port 3000"
+      "name": "app",
+      "command": "cd frontend && npm run build && cd ../backend && ../.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000",
+      "description": "DeepGuard UI + API on port 8000"
     }
   ],
   "ports": [
     {
-      "name": "web",
-      "port": 3000
+      "name": "DeepGuard",
+      "port": 8000
     }
   ]
 }

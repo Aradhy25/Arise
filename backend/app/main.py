@@ -56,6 +56,7 @@ def create_app() -> FastAPI:
     app.mount("/files/reports", StaticFiles(directory=str(settings.reports_dir)), name="reports")
 
     @app.get("/api/health", response_model=HealthOut)
+    @app.get("/healthz", response_model=HealthOut, include_in_schema=False)
     def health() -> HealthOut:
         try:
             eng = get_engine()
